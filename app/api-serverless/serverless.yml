@@ -1,0 +1,122 @@
+service: apisls
+
+package:
+  individually: true # ref.: https://serverless.com/framework/docs/providers/aws/guide/packaging/#packaging-functions-separately
+  exclude:
+    - .gitignore
+    - .git/**
+    - .serverless/**
+    - ./**/yarn.lock
+    - ./**/template.*
+    - ./**/package.json
+    - ./README.md
+
+plugins:
+  - serverless-webpack
+  - serverless-dotenv-plugin  
+
+provider:
+  name: aws
+  runtime: nodejs12.x
+  stage: dev
+  region: ap-northeast-1
+  iamRoleStatements: # permissions for all of your functions can be set here
+    - Effect: Allow
+      Action: # Gives permission to DynamoDB tables in a specific region
+        - dynamodb:DescribeTable
+        - dynamodb:Query
+        - dynamodb:Scan
+        - dynamodb:GetItem
+        - dynamodb:PutItem
+        - dynamodb:UpdateItem
+        - dynamodb:DeleteItem
+      Resource: 'arn:aws:dynamodb:ap-northeast-1:*:*'
+  environment:
+    SHOPIFY_API_KEY: ${env:SHOPIFY_API_KEY}
+    SHOPIFY_API_SECRET: ${env:SHOPIFY_API_SECRET}
+    COGNITO_USER_POOL_ID: ${env:COGNITO_USER_POOL_ID}
+    COGNITO_CLIENTID: ${env:COGNITO_CLIENTID}
+    REGION: ${env:REGION}
+    PUBLIC_API_URL: ${env:PUBLIC_API_URL}
+    PRIVATE_API_URL: ${env:PRIVATE_API_URL}
+
+functions:
+  publicEndpoint:
+    handler: index.handler
+    events:
+      - http:
+          path: '/api/public/{proxy+}'
+          method: ANY
+          cors: 
+            origins:
+              - '*'
+            headers:
+              - Authorization
+              - Content-Type
+              - X-Amz-Date
+              - X-Api-Key
+              - X-Amz-Security-Token
+              - X-Amz-User-Agent
+            allowCredentials: true
+  cognitoAuth:
+    handler: './functions/util/cognitoAuth.authorize'
+  privateEndpoint:
+    handler: index.handler
+    events:
+      - http:
+          path: '/api/private/{proxy+}'
+          method: ANY
+          authorizer:
+            name: cognitoAuth
+            resultTtlInSeconds: 0          
+          cors: 
+            origins:
+              - '*'
+            headers:
+              - Authorization
+              - Content-Type
+              - X-Amz-Date
+              - X-Api-Key
+              - X-Amz-Security-Token
+              - X-Amz-User-Agent
+            allowCredentials: true
+
+resources:
+  Resources:
+    CognitoUserPool: # https://serverless-stack.com/chapters/configure-cognito-user-pool-in-serverless.html
+      Type: AWS::Cognito::UserPool
+      Properties:
+        # Generate a name based on the stage
+        UserPoolName: ${opt:stage, self:provider.stage}_${self:service.name}_cognito_user_pool
+        # Set email as an alias
+        UsernameAttributes:
+          - email
+        AutoVerifiedAttributes:
+          - email
+    CognitoUserPoolClient:
+      Type: AWS::Cognito::UserPoolClient
+      Properties:
+        # Generate an app client name based on the stage
+        ClientName: ${opt:stage, self:provider.stage}_${self:service.name}_cognito_user_pool_client
+        UserPoolId:
+          Ref: CognitoUserPool
+        ExplicitAuthFlows:
+          - ADMIN_NO_SRP_AUTH
+        GenerateSecret: false
+
+    TokenTable: 
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: Tokens
+        AttributeDefinitions:
+          - AttributeName: shop_id
+            AttributeType: S
+        KeySchema:
+          - AttributeName: shop_id
+            KeyType: HASH
+        ProvisionedThroughput:
+          ReadCapacityUnits: 1
+          WriteCapacityUnits: 1
+        TimeToLiveSpecification:
+          AttributeName: expired_at
+          Enabled: true
