@@ -13,7 +13,7 @@
     "amazon-cognito-identity-js": "^4.2.3",
     "aws-amplify": "^3.0.10",
     "aws-sdk": "^2.676.0",
-    "axios": "^0.19.2",
+    "axios": "^0.21.2",
     "query-string": "^6.12.1",
     "react": "^16.13.1",
     "react-dom": "^16.13.1",
